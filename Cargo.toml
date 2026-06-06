@@ -1,0 +1,15 @@
+[package]
+name = "tcp_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+criterion = "0.8.2"
+tokio = "1.52.3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
