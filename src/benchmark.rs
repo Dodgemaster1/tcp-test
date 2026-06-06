@@ -7,18 +7,26 @@ use std::process::exit;
 const MODEM_ID: u32 = 666666;
 const REQUEST: &[u8] = b"get_more_data()";
 const ANSWER: &[u8] = &[0x14; 432];
+const CHECK_SERVER: &[u8] = b"CheckServer";
+const OK: &[u8] = b"OK\r\n";
 
 pub fn benchmark(host: String, modem_port: u16, program_port: u16) -> Result<()> {
     let mut modem = Client::connect(host.clone(), modem_port)?;
     let mut program = Client::connect(host.clone(), program_port)?;
 
-    modem.handshake(MODEM_ID)?;
-    program.handshake(MODEM_ID)?;
+    modem.handshake(MODEM_ID).context("Error in handshake")?;
+    program.handshake(MODEM_ID).context("Error in handshake")?;
 
     for _ in 0..10 {
+        modem.checkserver()?;
+
         program.send(REQUEST)?;
         if modem.recv()? != REQUEST {
-            bail!("Sent and received messages don't match")
+            bail!("Sent and received REQUEST don't match")
+        }
+        modem.send(ANSWER)?;
+        if program.recv()? != ANSWER {
+            bail!("Sent and received ANSWER don't match")
         }
     }
 
@@ -72,10 +80,19 @@ impl Client {
             .write_all(format!("Modem={modem_id}").as_bytes())?;
         let mut buf = [0u8; 4];
         self.stream.read(&mut buf)?;
-        if buf == "OK\r\n".as_bytes() {
+        if buf == OK {
             Ok(())
         } else {
             bail!("Non-ok response from server during hanshake")
+        }
+    }
+
+    fn checkserver(&mut self) -> Result<()> {
+        self.send(CHECK_SERVER)?;
+        if self.recv()? == OK {
+            Ok(())
+        } else {
+            bail!("Non-ok response after sending CheckServer")
         }
     }
 
