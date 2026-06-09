@@ -51,8 +51,7 @@ fn main() {
             program_port,
         } => {
             println!("Host: {host}, modem_port: {modem_port}, program_port: {program_port}");
-            let bench = move || benchmark::benchmark(host.clone(), modem_port, program_port);
-            benchmark::bench_with_criterion(bench);
+            benchmark::bench_with_criterion(host, modem_port, program_port);
         }
     }
 

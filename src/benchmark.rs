@@ -4,19 +4,25 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::exit;
 
+use crate::Cli;
+
 const MODEM_ID: u32 = 666666;
 const REQUEST: &[u8] = b"get_more_data()";
 const ANSWER: &[u8] = &[0x14; 432];
 const CHECK_SERVER: &[u8] = b"CheckServer";
 const OK: &[u8] = b"OK\r\n";
 
-pub fn benchmark(host: String, modem_port: u16, program_port: u16) -> Result<()> {
+pub fn establish_connection(host: String, modem_port: u16, program_port: u16) -> Result<(Client, Client)> {
     let mut modem = Client::connect(host.clone(), modem_port)?;
     let mut program = Client::connect(host.clone(), program_port)?;
 
     modem.handshake(MODEM_ID).context("Error in handshake")?;
     program.handshake(MODEM_ID).context("Error in handshake")?;
 
+    Ok((modem, program))
+}
+
+pub fn send_receive_benchmark(modem: &mut Client, program: &mut Client) -> Result<()> {
     for _ in 0..10 {
         modem.checkserver()?;
 
@@ -33,24 +39,30 @@ pub fn benchmark(host: String, modem_port: u16, program_port: u16) -> Result<()>
     Ok(())
 }
 
-pub fn bench_with_criterion<F>(func: F)
-where
-    F: Fn() -> Result<()>,
+pub fn bench_with_criterion(host: String, modem_port: u16, program_port: u16)
 {
     let mut c = Criterion::default()
         .with_output_color(true)
-        .sample_size(50);
+        .sample_size(100);
 
-    c.bench_function("connect+send+receive", |b| {
+    let (mut modem, mut program) = match establish_connection(host, modem_port, program_port) {
+        Ok(clients) => clients,
+        Err(e) => {
+            println!("Setup failed: {:#}", e);
+            exit(-1)
+        }
+    };
+
+    c.bench_function("send+receive", |b| {
         b.iter_custom(|iters| {
             let start = std::time::Instant::now();
 
             for _ in 0..iters {
-                if let Err(e) = func() {
+                if let Err(e) = send_receive_benchmark(&mut modem, &mut program) {
                     println!("{:-<88}", "");
                     println!("Benchmark failed:");
                     println!("{:#}", e);
-                    exit(-1)
+                    exit(-2)
                 }
             }
 
@@ -59,7 +71,7 @@ where
     });
 }
 
-struct Client {
+pub struct Client {
     _port: u16,
     stream: TcpStream,
 }
@@ -78,9 +90,7 @@ impl Client {
     fn handshake(&mut self, modem_id: u32) -> Result<()> {
         self.stream
             .write_all(format!("Modem={modem_id}").as_bytes())?;
-        let mut buf = [0u8; 4];
-        self.stream.read(&mut buf)?;
-        if buf == OK {
+        if self.recv()? == OK {
             Ok(())
         } else {
             bail!("Non-ok response from server during hanshake")
